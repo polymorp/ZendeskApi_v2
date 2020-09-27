@@ -346,10 +346,6 @@ namespace Tests
             var res = api.Tickets.CreateTicket(ticket).Ticket;
             Assert.AreEqual(ticket.CustomFields[1].Value, res.CustomFields.Where(f => f.Id == Settings.CustomBoolFieldId).FirstOrDefault().Value);
 
-            //var updateResponse = api.Tickets.UpdateTicket(res, new Comment() { Body = "Just trying to update it!", Public = true});
-            //res.UpdatedAt = null;
-            //res.CreatedAt = null;
-
             var updateResponse = api.Tickets.UpdateTicket(res, new Comment() { Body = "Just trying to update it!", Public = true });
 
             Assert.AreEqual(ticket.CustomFields[1].Value, updateResponse.Ticket.CustomFields[1].Value);
@@ -490,6 +486,18 @@ namespace Tests
             Assert.NotNull(nextPageValue);
 
             Assert.AreEqual((page + 1).ToString(), nextPageValue);
+        }
+
+        [Test]
+        public void CanGetTicketCommentsPagedAndSorted()
+        {
+            const int perPage = 1;
+            const int page = 1;
+            var commentsRes = api.Tickets.GetTicketComments(2, perPage, page);
+            var commentsRes2 = api.Tickets.GetTicketComments(2, false, perPage, page);
+
+            Assert.AreEqual(new DateTimeOffset(2012, 10, 30, 13, 35, 11, TimeSpan.Zero), commentsRes.Comments[0].CreatedAt);
+            Assert.AreEqual(new DateTimeOffset(2014, 01, 24, 03, 29, 30, TimeSpan.Zero), commentsRes2.Comments[0].CreatedAt);
         }
 
         [Test]
@@ -821,8 +829,9 @@ namespace Tests
             Assert.True(api.Tickets.DeleteTicketField(updatedTF.Id.Value));
         }
 
-        [Test]
-        public void CanCreateAndDeleteTaggerTicketField()
+        [TestCase(true, "test entry", "test_entry")]
+        [TestCase(false, "test entry", "test entry")]
+        public void CanCreateAndDeleteTaggerTicketField(bool replaceNameSpaceWithUnderscore, string name, string expectedName)
         {
             var tField = new TicketField()
             {
@@ -835,23 +844,26 @@ namespace Tests
 
             tField.CustomFieldOptions.Add(new CustomFieldOptions()
             {
-                Name = "test entry",
+                Name = name,
                 Value = "test value"
             });
 
-            var res = api.Tickets.CreateTicketField(tField);
+            var res = api.Tickets.CreateTicketField(tField, replaceNameSpaceWithUnderscore);
             Assert.NotNull(res.TicketField);
+            Assert.AreEqual(res.TicketField.CustomFieldOptions[0].Name, expectedName);
 
             Assert.True(api.Tickets.DeleteTicketField(res.TicketField.Id.Value));
         }
 
-        [Test]
-        public void CanCreateUpdateOptionsAndDeleteTaggerTicketField()
+        [TestCase(true, "test entryA", "test entryA newTitle", "test entryB", "test entryC", "test_entryA", "test_entryA_newTitle", "test_entryB", "test_entryC")]
+        [TestCase(false, "test entryA", "test entryA newTitle", "test entryB", "test entryC", "test entryA", "test entryA newTitle", "test entryB", "test entryC")]
+        public void CanCreateUpdateOptionsAndDeleteTaggerTicketField(bool replaceNameSpaceWithUnderscore, string name1, string name1_Update, string name2, string name3,
+            string expectedName1, string expectedName1_Update, string expectedName2, string expectedName3)
         {
             // https://support.zendesk.com/hc/en-us/articles/204579973--BREAKING-Update-ticket-field-dropdown-fields-by-value-instead-of-id-
 
             var option1 = "test_value_a";
-            var option1_Update = "test_value_a_newtag";
+            var option1_Update = "test value_a_newtag";
             var option2 = "test_value_b";
             var option3 = "test_value_c";
 
@@ -866,22 +878,24 @@ namespace Tests
 
             tField.CustomFieldOptions.Add(new CustomFieldOptions()
             {
-                Name = "test entryA",
+                Name = name1,
                 Value = option1
             });
 
             tField.CustomFieldOptions.Add(new CustomFieldOptions()
             {
-                Name = "test entryB",
+                Name = name2,
                 Value = option2
             });
 
-            var res = api.Tickets.CreateTicketField(tField);
+            var res = api.Tickets.CreateTicketField(tField, replaceNameSpaceWithUnderscore);
             Assert.That(res.TicketField, Is.Not.Null);
             Assert.That(res.TicketField.Id, Is.Not.Null);
             Assert.That(res.TicketField.CustomFieldOptions.Count, Is.EqualTo(2));
             Assert.That(res.TicketField.CustomFieldOptions[0].Value, Is.EqualTo(option1));
             Assert.That(res.TicketField.CustomFieldOptions[1].Value, Is.EqualTo(option2));
+            Assert.That(res.TicketField.CustomFieldOptions[0].Name, Is.EqualTo(expectedName1));
+            Assert.That(res.TicketField.CustomFieldOptions[1].Name, Is.EqualTo(expectedName2));
 
             var id = res.TicketField.Id.Value;
 
@@ -894,27 +908,30 @@ namespace Tests
             //update CustomFieldOption A
             tFieldU.CustomFieldOptions.Add(new CustomFieldOptions()
             {
-                Name = "test entryA newTitle",
+                Name = name1_Update,
                 Value = option1_Update
             });
             //delete CustomFieldOption B
             //add CustomFieldOption C
             tFieldU.CustomFieldOptions.Add(new CustomFieldOptions()
             {
-                Name = "test entryC",
+                Name = name3,
                 Value = option3
             });
 
-            var resU = api.Tickets.UpdateTicketField(tFieldU);
+            var resU = api.Tickets.UpdateTicketField(tFieldU, replaceNameSpaceWithUnderscore);
 
             Assert.That(resU.TicketField.CustomFieldOptions.Count, Is.EqualTo(2));
-            Assert.That(resU.TicketField.CustomFieldOptions[0].Value, Is.EqualTo(option1_Update));
-            Assert.That(resU.TicketField.CustomFieldOptions[1].Value, Is.Not.EqualTo(option2));
+            Assert.That(resU.TicketField.CustomFieldOptions[0].Value, Is.EqualTo(option1_Update.Replace(" ", "_")));
+            Assert.That(resU.TicketField.CustomFieldOptions[1].Value, Is.EqualTo(option3));
+            Assert.That(resU.TicketField.CustomFieldOptions[0].Name, Is.EqualTo(expectedName1_Update));
+            Assert.That(resU.TicketField.CustomFieldOptions[1].Name, Is.EqualTo(expectedName3));
 
             Assert.True(api.Tickets.DeleteTicketField(id));
         }
 
         [Test]
+        [Ignore("This test requires an email be sent. A this time that is not automated.")]
         public void CanGetSuspendedTickets()
         {
             var all = api.Tickets.GetSuspendedTickets();
@@ -1103,6 +1120,166 @@ namespace Tests
         }
 
         [Test]
+        public void CanMergeTickets()
+        {
+            var sourceDescription = new List<string> { "This is a source ticket 1", "This is a source ticket 2" };
+            var targetDescription = "This is a the target ticket";
+
+            var sourceTicket1 = new Ticket
+            {
+                Subject = "Source Ticket 1",
+                Comment = new Comment { Body = sourceDescription[0], Public = true, }
+            };
+            var sourceTicket2 = new Ticket
+            {
+                Subject = "Source Ticket 2",
+                Comment = new Comment { Body = sourceDescription[1], Public=true, }
+            };
+            var targetTicket = new Ticket
+            {
+                Subject = "Target Ticket",
+                Comment = new Comment { Body = targetDescription, Public = true, }
+            };
+
+            var mergeIds = new List<long>();
+
+            var tick = api.Tickets.CreateTicket(sourceTicket1);
+            mergeIds.Add(tick.Ticket.Id.Value);
+            tick = api.Tickets.CreateTicket(sourceTicket2);
+            mergeIds.Add(tick.Ticket.Id.Value);
+            tick = api.Tickets.CreateTicket(targetTicket);
+            var targetTicketId = tick.Ticket.Id.Value;
+
+            var targetMergeComment =
+                $"Merged with ticket(s) {string.Join(", ", mergeIds.Select(m => $"#{m}").ToArray())}";
+            var sourceMergeComment = $"Closing in favor of #{targetTicketId}";
+
+            var res = api.Tickets.MergeTickets(
+                targetTicketId, 
+                mergeIds, 
+                targetMergeComment, 
+                sourceMergeComment,
+                true,
+                true);
+
+            Assert.That(res.JobStatus.Status, Is.EqualTo("queued"));
+
+            do
+            {
+                Thread.Sleep(5000);
+                var job = api.JobStatuses.GetJobStatus(res.JobStatus.Id);
+                Assert.That(job.JobStatus.Id, Is.EqualTo(res.JobStatus.Id));
+
+                if (job.JobStatus.Status == "completed") break;
+            } while (true);
+
+            var counter = 0;
+            foreach (var id in mergeIds)
+            {
+                var oldTicket = api.Tickets.GetTicket(id);
+                Assert.That(oldTicket.Ticket.Id.Value, Is.EqualTo(id));
+                Assert.That(oldTicket.Ticket.Status, Is.EqualTo("closed"));
+
+                var oldComments = api.Tickets.GetTicketComments(id);
+                Assert.That(oldComments.Comments.Count, Is.EqualTo(2));
+                Assert.That(oldComments.Comments[0].Body, Is.EqualTo(sourceDescription[counter]));
+                Assert.That(oldComments.Comments[1].Body, Is.EqualTo(sourceMergeComment));
+
+                api.Tickets.DeleteAsync(id);
+                counter++;
+            }
+
+            var ticket = api.Tickets.GetTicket(targetTicketId);
+            Assert.That(ticket.Ticket.Id.Value, Is.EqualTo(targetTicketId));
+
+            var comments = api.Tickets.GetTicketComments(targetTicketId);
+            Assert.That(comments.Comments.Count, Is.EqualTo(2));
+            Assert.That(comments.Comments[0].Body, Is.EqualTo(targetDescription));
+            Assert.That(comments.Comments[1].Body, Is.EqualTo(targetMergeComment));
+
+            api.Tickets.DeleteAsync(targetTicketId);
+        }
+
+        [Test]
+        public async Task CanMergeTicketsAsync()
+        {
+            var sourceDescription = new List<string> { "This is a source ticket 1", "This is a source ticket 2" };
+            var targetDescription = "This is a the target ticket";
+
+            var sourceTicket1 = new Ticket
+            {
+                Subject = "Source Ticket 1",
+                Comment = new Comment { Body = sourceDescription[0], Public = true, }
+            };
+            var sourceTicket2 = new Ticket
+            {
+                Subject = "Source Ticket 2",
+                Comment = new Comment { Body = sourceDescription[1], Public = true, }
+            };
+            var targetTicket = new Ticket
+            {
+                Subject = "Target Ticket",
+                Comment = new Comment { Body = targetDescription, Public = true, }
+            };
+
+            var mergeIds = new List<long>();
+
+            var tick = await api.Tickets.CreateTicketAsync(sourceTicket1);
+            mergeIds.Add(tick.Ticket.Id.Value);
+            tick = await api.Tickets.CreateTicketAsync(sourceTicket2);
+            mergeIds.Add(tick.Ticket.Id.Value);
+            tick = await api.Tickets.CreateTicketAsync(targetTicket);
+            var targetTicketId = tick.Ticket.Id.Value;
+
+            var targetMergeComment =
+                $"Merged with ticket(s) {string.Join(", ", mergeIds.Select(m => $"#{m}").ToArray())}";
+            var sourceMergeComment = $"Closing in favor of #{targetTicketId}";
+
+            var res = await api.Tickets.MergeTicketsAsync(
+                targetTicketId,
+                mergeIds,
+                targetMergeComment,
+                sourceMergeComment);
+
+            Assert.That(res.JobStatus.Status, Is.EqualTo("queued"));
+
+            do
+            {
+                await Task.Delay(5000);
+                var job = await api.JobStatuses.GetJobStatusAsync(res.JobStatus.Id);
+                Assert.That(job.JobStatus.Id, Is.EqualTo(res.JobStatus.Id));
+
+                if (job.JobStatus.Status == "completed") break;
+            } while (true);
+
+            var counter = 0;
+            foreach (var id in mergeIds)
+            {
+                var oldTicket = await api.Tickets.GetTicketAsync(id);
+                Assert.That(oldTicket.Ticket.Id.Value, Is.EqualTo(id));
+                Assert.That(oldTicket.Ticket.Status, Is.EqualTo("closed"));
+
+                var oldComments = await api.Tickets.GetTicketCommentsAsync(id);
+                Assert.That(oldComments.Comments.Count, Is.EqualTo(2));
+                Assert.That(oldComments.Comments[0].Body, Is.EqualTo(sourceDescription[counter]));
+                Assert.That(oldComments.Comments[1].Body, Is.EqualTo(sourceMergeComment));
+
+                await api.Tickets.DeleteAsync(id);
+                counter++;
+            }
+
+            var ticket = await api.Tickets.GetTicketAsync(targetTicketId);
+            Assert.That(ticket.Ticket.Id.Value, Is.EqualTo(targetTicketId));
+
+            var comments = await api.Tickets.GetTicketCommentsAsync(targetTicketId);
+            Assert.That(comments.Comments.Count, Is.EqualTo(2));
+            Assert.That(comments.Comments[0].Body, Is.EqualTo(targetDescription));
+            Assert.That(comments.Comments[1].Body, Is.EqualTo(targetMergeComment));
+
+            await api.Tickets.DeleteAsync(targetTicketId);
+        }
+
+        [Test]
         public void CanBulkImportTicket()
         {
             var test = new List<TicketImport>();
@@ -1181,10 +1358,13 @@ namespace Tests
         {
             // see https://github.com/mozts2005/ZendeskApi_v2/issues/254
 
+            var initCommentBody = "HELP";
+            var secondCommentBody = "New comment";
+
             var ticket = new Ticket()
             {
                 Subject = "my printer is on fire",
-                Comment = new Comment() { Body = "HELP" },
+                Comment = new Comment() { Body = initCommentBody },
                 Priority = TicketPriorities.Urgent
             };
 
@@ -1202,12 +1382,15 @@ namespace Tests
 
             Assert.That(newTicket.Via.Channel, Is.EqualTo("api"));
 
-            var comment = new Comment { Body = "New comment", Public = true };
+            var comment = new Comment { Body = secondCommentBody, Public = true };
 
             var resp2 = await api.Tickets.UpdateTicketAsync(newTicket, comment);
             var resp3 = await api.Tickets.GetTicketCommentsAsync(newTicket.Id.Value);
+            var resp4 = await api.Tickets.GetTicketCommentsAsync(newTicket.Id.Value, false);
 
             Assert.That(resp3.Comments.Any(c => c.Via?.Channel != "api"), Is.False);
+            Assert.That(resp3.Comments[0].Body, Is.EqualTo(initCommentBody));
+            Assert.That(resp4.Comments[0].Body, Is.EqualTo(secondCommentBody));
 
             // clean up
             await api.Tickets.DeleteAsync(newTicket.Id.Value);
@@ -1313,25 +1496,14 @@ namespace Tests
         [Test]
         public async Task CanGetBrandId()
         {
-            var brand = new Brand()
-            {
-                Name = "Test Brand",
-                Active = true,
-                Subdomain = $"test-{Guid.NewGuid()}"
-            };
-
-            var respBrand = api.Brands.CreateBrand(brand);
-
-            brand = respBrand.Brand;
-
+            var respBrand = api.Brands.GetBrands();
+            var brand = respBrand.Brands[0];
             var ticket = new Ticket { Comment = new Comment { Body = "This is a Brand id Test", Public = false }, BrandId = brand.Id };
             var respTicket = await api.Tickets.CreateTicketAsync(ticket);
-            var respTickets = await api.Tickets.GetMultipleTicketsAsync(new List<long> { respTicket.Ticket.Id.Value });
 
-            Assert.That(respTickets.Tickets[0].BrandId, Is.EqualTo(brand.Id));
+            Assert.That(respTicket.Ticket.BrandId, Is.EqualTo(brand.Id));
 
             // clean up
-            Assert.True(api.Brands.DeleteBrand(brand.Id.Value));
             Assert.True(await api.Tickets.DeleteAsync(respTicket.Ticket.Id.Value));
         }
 
